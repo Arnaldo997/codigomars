@@ -1,0 +1,257 @@
+
+
+.data
+input_file:      .asciiz 
+output_file:     .asciiz 
+buffer:          .space 4096            
+int_array:       .space 400             
+temp_str:        .space 16              
+newline:         .asciiz "\n"
+
+.text
+.globl main
+
+main:
+    
+    li $v0, 13             
+    la $a0, input_file     
+    li $a1, 0              
+    li $a2, 0              
+    syscall
+    move $s0, $v0          
+    
+    li $v0, 14
+    move $a0, $s0
+    la $a1, buffer
+    li $a2, 4096
+    syscall
+
+    
+    li $v0, 16
+    move $a0, $s0
+    syscall
+
+    # --- Converter string em inteiros ---
+    la $a0, buffer
+    la $a1, int_array
+    jal parse_numbers
+    move $s1, $v0          # $s1 = quantidade de números
+
+    # --- Ordenar array ---
+    la $a0, int_array
+    move $a1, $s1
+    jal sort_array
+
+    # --- Gravar arquivo de saída ---
+    li $v0, 13
+    la $a0, output_file
+    li $a1, 1              # flag escrita
+    li $a2, 0
+    syscall
+    move $s2, $v0          # $s2 = descritor de saída
+
+    # Escrever cada número ordenado no arquivo
+    la $t0, int_array
+    move $t1, $s1
+
+write_loop:
+    beqz $t1, done_write
+    lw $a0, 0($t0)
+    la $a1, temp_str
+    jal int_to_str
+
+    # Escrever string
+    li $v0, 15
+    move $a0, $s2
+    la $a1, temp_str
+    move $a2, $v1           # tamanho da string
+    syscall
+
+    # Escrever vírgula exceto último
+    addi $t1, $t1, -1
+    beqz $t1, skip_comma
+    li $v0, 15
+    move $a0, $s2
+    la $a1, newline
+    li $a2, 1
+    syscall
+skip_comma:
+    addi $t0, $t0, 4
+    j write_loop
+
+done_write:
+    # Fechar arquivo de saída
+    li $v0, 16
+    move $a0, $s2
+    syscall
+
+    # Encerrar
+    li $v0, 10
+    syscall
+
+# ==========================================================
+# Rotina: parse_numbers
+# Lê números separados por vírgula e converte para inteiros
+# Entrada: $a0 = endereço da string, $a1 = endereço do array
+# Saída:   $v0 = quantidade de números lidos
+# ==========================================================
+parse_numbers:
+    add $t0, $zero, $a0
+    add $t1, $zero, $a1
+    li $t2, 0              # contador
+    la $t3, temp_str
+    li $t4, 0
+
+parse_loop:
+    lb $t5, 0($t0)
+    beqz $t5, parse_end
+    beq $t5, 44, new_number     # ',' ASCII 44
+    sb $t5, 0($t3)
+    addi $t3, $t3, 1
+    addi $t0, $t0, 1
+    j parse_loop
+
+new_number:
+    sb $zero, 0($t3)
+    la $a0, temp_str
+    jal str_to_int
+    sw $v0, 0($t1)
+    addi $t1, $t1, 4
+    addi $t2, $t2, 1
+    addi $t0, $t0, 1
+    la $t3, temp_str
+    j parse_loop
+
+parse_end:
+    sb $zero, 0($t3)
+    la $a0, temp_str
+    jal str_to_int
+    sw $v0, 0($t1)
+    addi $t2, $t2, 1
+    move $v0, $t2
+    jr $ra
+
+# ==========================================================
+# Rotina: str_to_int
+# Converte string numérica para inteiro
+# Entrada: $a0 = endereço da string
+# Saída:   $v0 = valor inteiro
+# ==========================================================
+str_to_int:
+    li $v0, 0
+    li $t0, 0
+    li $t1, 1
+    lb $t2, 0($a0)
+    li $t3, 45              # '-'
+    beq $t2, $t3, neg_number
+
+convert_loop:
+    lb $t2, 0($a0)
+    beqz $t2, end_str_to_int
+    addi $t2, $t2, -48
+    mul $v0, $v0, 10
+    add $v0, $v0, $t2
+    addi $a0, $a0, 1
+    j convert_loop
+
+neg_number:
+    li $t1, -1
+    addi $a0, $a0, 1
+    j convert_loop
+
+end_str_to_int:
+    mul $v0, $v0, $t1
+    jr $ra
+
+# ==========================================================
+# Rotina: sort_array (Bubble Sort)
+# Entrada: $a0 = endereço do array, $a1 = tamanho
+# ==========================================================
+sort_array:
+    addi $sp, $sp, -8
+    sw $ra, 0($sp)
+    sw $a1, 4($sp)
+outer_loop:
+    addi $a1, $a1, -1
+    blez $a1, sort_end
+    li $t0, 0
+    la $t1, 0($a0)
+inner_loop:
+    lw $t2, 0($t1)
+    lw $t3, 4($t1)
+    ble $t2, $t3, skip_swap
+    sw $t3, 0($t1)
+    sw $t2, 4($t1)
+skip_swap:
+    addi $t1, $t1, 4
+    addi $t0, $t0, 1
+    blt $t0, $a1, inner_loop
+    j outer_loop
+sort_end:
+    lw $ra, 0($sp)
+    addi $sp, $sp, 8
+    jr $ra
+
+# ==========================================================
+# Rotina: int_to_str
+# Converte inteiro em string decimal
+# Entrada: $a0 = inteiro, $a1 = endereço buffer
+# Saída:   $v1 = tamanho da string
+# ==========================================================
+int_to_str:
+    move $t0, $a0
+    li $t1, 0
+    li $t2, 0
+    bltz $t0, neg_case
+pos_case:
+    beqz $t0, zero_case
+    la $t3, temp_str
+conv_loop:
+    li $t9, 10           # ? Correção aplicada aqui
+    div $t0, $t9         # dividir $t0 por 10 (resultado LO, resto HI)
+    mfhi $t4
+    mflo $t0
+    addi $t4, $t4, 48
+    sb $t4, 0($a1)
+    addi $a1, $a1, 1
+    addi $t1, $t1, 1
+    bnez $t0, conv_loop
+    j reverse_str
+
+neg_case:
+    li $t2, 1
+    neg $t0, $t0
+    j pos_case
+
+zero_case:
+    li $t1, 1
+    li $t4, 48
+    sb $t4, 0($a1)
+    addi $a1, $a1, 1
+    j reverse_str
+
+reverse_str:
+    sub $a1, $a1, $t1
+    la $t5, temp_str
+    add $t6, $a1, $zero
+    li $t7, 0
+rev_loop:
+    blt $t7, $t1, do_rev
+    j done_str
+do_rev:
+    lb $t8, 0($a1)
+    sb $t8, 0($t5)
+    addi $a1, $a1, -1
+    addi $t5, $t5, 1
+    addi $t7, $t7, 1
+    j rev_loop
+done_str:
+    beqz $t2, no_neg
+    li $t8, 45
+    sb $t8, 0($t5)
+    addi $t5, $t5, 1
+    addi $t1, $t1, 1
+no_neg:
+    sb $zero, 0($t5)
+    move $v1, $t1
+    jr $ra
